@@ -492,7 +492,7 @@ PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [convert_c
   /* NOTE(esteve): Call constructor of @(message.structure.namespaced_type.name) */
   PyObject * _pymessage = NULL;
   {
-    PyObject * pymessage_module = PyImport_ImportModule("@('.'.join(message.structure.namespaced_type.namespaces)).@(module_name)");
+    PyObject * pymessage_module = PyImport_ImportModule("@('.'.join([package_name] + list(interface_path.parents[0].parts))).@(module_name)");
     assert(pymessage_module);
     PyObject * pymessage_class = PyObject_GetAttrString(pymessage_module, "@(message.structure.namespaced_type.name)");
     assert(pymessage_class);

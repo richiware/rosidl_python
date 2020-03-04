@@ -2,8 +2,8 @@
 @{
 from rosidl_cmake import convert_camel_case_to_lower_case_underscore
 
-include_parts = idl_type.namespaces + [
-    convert_camel_case_to_lower_case_underscore(idl_type.name)]
+include_parts = [package_name] + list(interface_path.parents[0].parts) + [
+    convert_camel_case_to_lower_case_underscore(interface_path.stem)]
 include_base = '/'.join(include_parts)
 
 header_files = [
@@ -56,7 +56,7 @@ PyObject * @('__'.join(message.structure.namespaced_type.namespaces + [module_na
 
 ROSIDL_GENERATOR_C_IMPORT
 const rosidl_message_type_support_t *
-ROSIDL_GET_MSG_TYPE_SUPPORT(@(', '.join(message.structure.namespaced_type.namespaced_name())));
+ROSIDL_GET_MSG_TYPE_SUPPORT(@(', '.join([package_name] + list(interface_path.parents[0].parts))), @(message.structure.namespaced_type.name));
 
 @{
 register_function = '_register_msg_type__' + '__'.join(message.structure.namespaced_type.namespaces[1:] + [module_name])
@@ -76,7 +76,7 @@ function_names = ['create_ros_message', 'destroy_ros_message', 'convert_from_py'
 @[    if function_name != 'type_support']@
     (void *)&@('__'.join(message.structure.namespaced_type.namespaces + [module_name]))__@(function_name),
 @[    else]@
-    (void *)ROSIDL_GET_MSG_TYPE_SUPPORT(@(', '.join(message.structure.namespaced_type.namespaced_name()))),
+    (void *)ROSIDL_GET_MSG_TYPE_SUPPORT(@(', '.join([package_name] + list(interface_path.parents[0].parts))), @(message.structure.namespaced_type.name)),
 @[    end if]@
     NULL, NULL);
   if (!pyobject_@(function_name)) {

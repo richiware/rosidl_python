@@ -6,6 +6,7 @@
 @#
 @# Context:
 @#  - package_name (string)
+@#  - interface_path (Path relative to the directory named after the package)
 @#  - content (IdlContent, combined list of elements across all interface files
 @#  - typesupport_impl (string identifying the typesupport used)
 @#######################################################################
@@ -43,7 +44,8 @@ static struct PyModuleDef @(package_name)__module = {
 @{
 TEMPLATE(
     '_msg_pkg_typesupport_entry_point.c.em',
-    package_name=package_name, idl_type=message.structure.namespaced_type, message=message,
+    package_name=package_name, interface_path=interface_path,
+    idl_type=message.structure.namespaced_type, message=message,
     typesupport_impl=typesupport_impl, include_directives=include_directives,
     register_functions=register_functions)
 }@

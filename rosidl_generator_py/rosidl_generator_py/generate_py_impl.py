@@ -63,23 +63,6 @@ def generate_py(generator_arguments_file, typesupport_impls):
     args = read_generator_arguments(generator_arguments_file)
     package_name = args['package_name']
 
-    # expand init modules for each directory
-    modules = {}
-    idl_content = IdlContent()
-    for idl_tuple in args.get('idl_tuples', []):
-        idl_parts = idl_tuple.rsplit(':', 1)
-        assert len(idl_parts) == 2
-
-        idl_rel_path = pathlib.Path(idl_parts[1])
-        idl_stems = modules.setdefault(str(idl_rel_path.parent), set())
-        idl_stems.add(idl_rel_path.stem)
-
-        locator = IdlLocator(*idl_parts)
-        idl_file = parse_idl_file(locator)
-        idl_content.elements += idl_file.content.elements
-
-    # NOTE(sam): remove when a language specific name mangling is implemented
-
     def print_warning_if_reserved_keyword(member_name, interface_type, interface_name):
         if (keyword.iskeyword(member.name)):
             print(
@@ -89,74 +72,95 @@ def generate_py(generator_arguments_file, typesupport_impls):
                 .format(member_name, interface_type, interface_name),
                 file=sys.stderr)
 
-    for message in idl_content.get_elements_of_type(Message):
-        for member in message.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'message',
-                message.structure.namespaced_type.name)
+    # expand init modules for each directory
+    modules = {}
+    for idl_tuple in args.get('idl_tuples', []):
+        idl_content = IdlContent()
 
-    for service in idl_content.get_elements_of_type(Service):
-        for member in service.request_message.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'service request',
-                service.namespaced_type.name)
-        for member in service.response_message.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'service response',
-                service.namespaced_type.name)
+        idl_parts = idl_tuple.rsplit(':', 1)
+        assert len(idl_parts) == 2
 
-    for action in idl_content.get_elements_of_type(Action):
-        for member in action.goal.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'action goal',
-                action.namespaced_type.name)
-        for member in action.feedback.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'action feedback',
-                action.namespaced_type.name)
-        for member in action.result.structure.members:
-            print_warning_if_reserved_keyword(
-                member.name, 'action result',
-                action.namespaced_type.name)
+        idl_rel_path = pathlib.Path(idl_parts[1])
+        idl_elements = modules.setdefault(str(idl_rel_path.parent), set())
+
+        locator = IdlLocator(*idl_parts)
+        idl_file = parse_idl_file(locator)
+        idl_content.elements += idl_file.content.elements
+
+
+        # NOTE(sam): remove when a language specific name mangling is implemented
+
+        for message in idl_content.get_elements_of_type(Message):
+            idl_elements.add((idl_rel_path.stem, message))
+            for member in message.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'message',
+                    message.structure.namespaced_type.name)
+
+        for service in idl_content.get_elements_of_type(Service):
+            for member in service.request_message.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'service request',
+                    service.namespaced_type.name)
+            for member in service.response_message.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'service response',
+                    service.namespaced_type.name)
+
+        for action in idl_content.get_elements_of_type(Action):
+            for member in action.goal.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'action goal',
+                    action.namespaced_type.name)
+            for member in action.feedback.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'action feedback',
+                    action.namespaced_type.name)
+            for member in action.result.structure.members:
+                print_warning_if_reserved_keyword(
+                    member.name, 'action result',
+                    action.namespaced_type.name)
+
+        # expand templates per available typesupport implementation
+        template_dir = args['template_dir']
+        type_support_impl_by_filename = {
+            '_%s_s.ep.{0}.c'.format(impl): impl for impl in typesupport_impls
+        }
+        mapping_msg_pkg_extension = {
+            os.path.join(template_dir, '_idl_pkg_typesupport_entry_point.c.em'):
+            type_support_impl_by_filename.keys(),
+        }
+
+        for template_file in mapping_msg_pkg_extension.keys():
+            assert os.path.exists(template_file), 'Could not find template: ' + template_file
+
+        latest_target_timestamp = get_newest_modification_time(args['target_dependencies'])
+
+        for template_file, generated_filenames in mapping_msg_pkg_extension.items():
+            for generated_filename in generated_filenames:
+                package_name = args['package_name']
+                data = {
+                    'package_name': args['package_name'],
+                    "interface_path": idl_rel_path,
+                    'content': idl_content,
+                    'typesupport_impl': type_support_impl_by_filename.get(generated_filename, ''),
+                }
+                generated_file = os.path.join(
+                    args['output_dir'], generated_filename % package_name
+                )
+                expand_template(
+                    template_file, data, generated_file,
+                    minimum_timestamp=latest_target_timestamp)
 
     for subfolder in modules.keys():
         with open(os.path.join(args['output_dir'], subfolder, '__init__.py'), 'w') as f:
-            for idl_stem in sorted(modules[subfolder]):
+            for element_info in modules[subfolder]:
                 module_name = '_' + \
-                    convert_camel_case_to_lower_case_underscore(idl_stem)
+                    convert_camel_case_to_lower_case_underscore(element_info[0])
+                element_name = element_info[1].structure.namespaced_type.name
                 f.write(
                     f'from {package_name}.{subfolder}.{module_name} import '
-                    f'{idl_stem}  # noqa: F401\n')
-
-    # expand templates per available typesupport implementation
-    template_dir = args['template_dir']
-    type_support_impl_by_filename = {
-        '_%s_s.ep.{0}.c'.format(impl): impl for impl in typesupport_impls
-    }
-    mapping_msg_pkg_extension = {
-        os.path.join(template_dir, '_idl_pkg_typesupport_entry_point.c.em'):
-        type_support_impl_by_filename.keys(),
-    }
-
-    for template_file in mapping_msg_pkg_extension.keys():
-        assert os.path.exists(template_file), 'Could not find template: ' + template_file
-
-    latest_target_timestamp = get_newest_modification_time(args['target_dependencies'])
-
-    for template_file, generated_filenames in mapping_msg_pkg_extension.items():
-        for generated_filename in generated_filenames:
-            package_name = args['package_name']
-            data = {
-                'package_name': args['package_name'],
-                'content': idl_content,
-                'typesupport_impl': type_support_impl_by_filename.get(generated_filename, ''),
-            }
-            generated_file = os.path.join(
-                args['output_dir'], generated_filename % package_name
-            )
-            expand_template(
-                template_file, data, generated_file,
-                minimum_timestamp=latest_target_timestamp)
+                    f'{element_name}  # noqa: F401\n')
 
     return 0
 
